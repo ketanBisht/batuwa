@@ -25,6 +25,8 @@ function App() {
     if (confirm("Are you sure? This will delete your wallet permanently.")) {
       localStorage.removeItem('encrypted_mnemonic');
       localStorage.removeItem('wallet_metadata');
+      localStorage.removeItem('solana_wallets');
+      localStorage.removeItem('eth_wallets');
       setHasEncryptedWallet(false);
       setMnemonic(null);
     }
@@ -45,8 +47,8 @@ function App() {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-20 px-4 font-sans">
         <Login onLogin={(mn) => setMnemonic(mn)} />
-        <button onClick={handleClearWallet} className="mt-8 text-red-500 text-xs hover:text-red-400 underline opacity-50 hover:opacity-100 transition-opacity">
-          Reset Wallet (Clears Data)
+        <button onClick={handleClearWallet} className="mt-8 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors">
+          Reset Wallet
         </button>
       </div>
     );
@@ -56,10 +58,10 @@ function App() {
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-10 px-4 font-sans">
       <div className="w-full max-w-6xl space-y-8">
         {/* Header */}
-        <div className="flex justify-between items-center bg-slate-800/50 backdrop-blur-md p-6 rounded-2xl border border-slate-700/50 shadow-lg">
+        <div className="flex justify-between items-center bg-slate-800/50 backdrop-blur-md p-6 rounded-2xl shadow-lg">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tighter bg-gradient-to-r from-teal-400 to-blue-500 bg-clip-text text-transparent">
-              Batwa
+              Batuwa
             </h1>
           </div>
           <div className="flex gap-4">

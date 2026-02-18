@@ -33,7 +33,7 @@ export const Onboarding = ({ onComplete }) => {
                 {step === 'password' ? 'Create Password' : 'Secure Your Wallet'}
             </h2>
 
-            <div className="w-full max-w-lg bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 shadow-2xl">
+            <div className="w-full max-w-lg bg-slate-800/50 backdrop-blur-xl rounded-2xl p-8 shadow-2xl">
                 {step === 'password' ? (
                     <div className="space-y-4">
                         <div>
@@ -42,7 +42,7 @@ export const Onboarding = ({ onComplete }) => {
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-teal-500 transition-colors"
+                                className="w-full bg-slate-900 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
                                 placeholder="Choose a strong password"
                             />
                         </div>
@@ -52,7 +52,7 @@ export const Onboarding = ({ onComplete }) => {
                                 type="password"
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-teal-500 transition-colors"
+                                className="w-full bg-slate-900 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
                                 placeholder="Confirm password"
                             />
                         </div>
@@ -72,7 +72,7 @@ export const Onboarding = ({ onComplete }) => {
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-3 md:grid-cols-4 gap-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                        <div className="grid grid-cols-3 md:grid-cols-4 gap-3 bg-slate-900/50 p-4 rounded-xl">
                             {mnemonic.split(" ").map((word, index) => (
                                 <div key={index} className="text-center">
                                     <span className="text-slate-500 text-xs mr-2">{index + 1}.</span>
