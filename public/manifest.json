@@ -1,0 +1,22 @@
+{
+    "manifest_version": 3,
+    "name": "Batuwa Wallet",
+    "version": "1.0.0",
+    "description": "A secure, serverless Solana & Ethereum wallet.",
+    "action": {
+        "default_popup": "index.html",
+        "default_icon": {
+            "16": "batuwa.svg",
+            "48": "batuwa.svg",
+            "128": "batuwa.svg"
+        }
+    },
+    "icons": {
+        "16": "batuwa.svg",
+        "48": "batuwa.svg",
+        "128": "batuwa.svg"
+    },
+    "permissions": [
+        "storage"
+    ]
+}
