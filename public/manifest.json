@@ -6,15 +6,15 @@
     "action": {
         "default_popup": "index.html",
         "default_icon": {
-            "16": "batuwa.svg",
-            "48": "batuwa.svg",
-            "128": "batuwa.svg"
+            "16": "batuwa.png",
+            "48": "batuwa.png",
+            "128": "batuwa.png"
         }
     },
     "icons": {
-        "16": "batuwa.svg",
-        "48": "batuwa.svg",
-        "128": "batuwa.svg"
+        "16": "batuwa.png",
+        "48": "batuwa.png",
+        "128": "batuwa.png"
     },
     "permissions": [
         "storage"
