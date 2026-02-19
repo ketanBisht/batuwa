@@ -2,17 +2,19 @@ import { useState, useEffect } from "react";
 import { mnemonicToSeedSync } from "bip39";
 import { Wallet, HDNodeWallet, JsonRpcProvider, formatEther, parseEther } from "ethers";
 import { WalletActionModal } from "./components/WalletActionModal";
-import { ConfirmationModal } from "./components/ConfirmationModal";
+import { DeleteWalletModal } from "./components/DeleteWalletModal";
 import { PasswordPromptModal } from "./components/PasswordPromptModal";
 import { PrivateKeyModal } from "./components/PrivateKeyModal";
+import { Notification } from "./components/Notification";
+import { ETH_RPC_URL } from "./config";
 
 // Simplified connection to Sepolia
-const provider = new JsonRpcProvider("https://eth-sepolia.g.alchemy.com/v2/vzy3epJFDMI27sjdUXAbj");
+const provider = new JsonRpcProvider(ETH_RPC_URL);
 
 export const EthWallet = ({ mnemonic }) => {
     const [addresses, setAddresses] = useState([]);
     const [modalConfig, setModalConfig] = useState(null);
-    const [deleteConfig, setDeleteConfig] = useState(null);
+    const [deleteConfig, setDeleteConfig] = useState(null); // { isOpen, address, type, hasFunds }
 
     // Security / Keys
     const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
@@ -33,21 +35,25 @@ export const EthWallet = ({ mnemonic }) => {
         }
     }, [addresses]);
 
+    const [notification, setNotification] = useState(null); // { message, type }
+
     const addWallet = async () => {
         const seed = await mnemonicToSeedSync(mnemonic);
-        let index = 0;
-        let pAddress = null;
+
+        // Get the next index from storage or initialize
+        let nextIndex = parseInt(localStorage.getItem('nextEthIndex') || '0');
+        let index = nextIndex;
+        let address = '';
         let balance = 0;
 
         while (true) {
-            const derivationPath = `m/44'/60'/${index}'/0'`;
+            const path = `m/44'/60'/0'/0/${index}`;
             const hdNode = HDNodeWallet.fromSeed(seed);
-            const child = hdNode.derivePath(derivationPath);
-            const address = child.address;
+            const wallet = hdNode.derivePath(path);
+            address = wallet.address;
 
             const exists = addresses.some(w => w.address === address);
             if (!exists) {
-                pAddress = address;
                 try {
                     balance = await fetchBalance(address);
                 } catch (e) {
@@ -58,53 +64,54 @@ export const EthWallet = ({ mnemonic }) => {
             index++;
         }
 
+        // Save the NEXT index
+        localStorage.setItem('nextEthIndex', (index + 1).toString());
+
         setAddresses([...addresses, {
-            address: pAddress,
+            address,
             balance: balance,
-            type: 'hd'
+            type: 'hd',
+            index: index
         }]);
     };
 
     const handleImportWallet = async () => {
         try {
-            // Assume input is hex private key
-            const wallet = new Wallet(importKeyInput, provider);
+            // Assume input is private key (hex)
+            const wallet = new Wallet(importKeyInput);
             const address = wallet.address;
 
             const exists = addresses.some(w => w.address === address);
             if (exists) {
-                alert("Wallet already exists!");
+                setNotification({ message: "Wallet already exists!", type: "error" });
                 return;
             }
 
-            let balance = 0;
-            try {
-                balance = await fetchBalance(address);
-            } catch (e) {
-                console.error(e);
-            }
-
             setAddresses([...addresses, {
-                address: address,
-                balance: balance,
+                address,
+                balance: 0,
                 type: 'imported',
-                secret: importKeyInput
+                privateKey: importKeyInput // Should be encrypted
             }]);
             setImportKeyInput('');
             setShowImportInput(false);
+            refreshBalances();
+            setNotification({ message: "Wallet imported successfully!", type: "success" });
         } catch (e) {
-            alert("Invalid Private Key. Please ensure it is a valid hex string.");
+            setNotification({ message: "Invalid Private Key.", type: "error" });
         }
     };
 
     const handleDelete = (address) => {
         const wallet = addresses.find(w => w.address === address);
-        // Safeguard
-        if (wallet && parseFloat(wallet.balance) > 0) {
-            setDeleteConfig({ isOpen: true, address, hasFunds: true });
-        } else {
-            setDeleteConfig({ isOpen: true, address, hasFunds: false });
-        }
+        if (!wallet) return;
+
+        setDeleteConfig({
+            isOpen: true,
+            address,
+            type: wallet.type,
+            hasFunds: parseFloat(wallet.balance) > 0
+        });
     };
 
     const confirmDelete = () => {
@@ -126,16 +133,16 @@ export const EthWallet = ({ mnemonic }) => {
             let secretKeyString = '';
 
             if (targetWallet.type === 'imported') {
-                secretKeyString = targetWallet.secret;
+                secretKeyString = targetWallet.privateKey; // Fixed: Use privateKey for imported ETH wallets
             } else {
                 // Re-derive
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
 
                 let found = false;
                 for (let i = 0; i < 100; i++) {
-                    const derivationPath = `m/44'/60'/${i}'/0'`;
+                    const path = `m/44'/60'/0'/0/${i}`;
                     const hdNode = HDNodeWallet.fromSeed(seed);
-                    const child = hdNode.derivePath(derivationPath);
+                    const child = hdNode.derivePath(path);
                     if (child.address === targetWallet.address) {
                         secretKeyString = child.privateKey;
                         found = true;
@@ -162,12 +169,8 @@ export const EthWallet = ({ mnemonic }) => {
 
     const fetchBalance = async (address) => {
         try {
-            const response = await fetch(`http://localhost:3000/api/balance/eth/${address}`);
-            const data = await response.json();
-            if (data.balance) {
-                return data.balance;
-            }
-            return "0.0";
+            const balance = await provider.getBalance(address);
+            return formatEther(balance);
         } catch (e) {
             console.error("Failed to fetch balance:", e);
             return "0.0";
@@ -191,16 +194,15 @@ export const EthWallet = ({ mnemonic }) => {
         try {
             let wallet;
             if (targetWallet.type === 'imported') {
-                wallet = new Wallet(targetWallet.secret, provider);
+                wallet = new Wallet(targetWallet.privateKey, provider);
             } else {
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
                 let foundIndex = -1;
                 // We need to find the correct index for the sender address
-                // Optimization: We could store the index in the wallet object to avoid this loop
                 for (let i = 0; i < 100; i++) {
-                    const derivationPath = `m/44'/60'/${i}'/0'`;
+                    const path = `m/44'/60'/0'/0/${i}`;
                     const hdNode = HDNodeWallet.fromSeed(seed);
-                    const child = hdNode.derivePath(derivationPath);
+                    const child = hdNode.derivePath(path);
                     if (child.address === fromAddress) {
                         foundIndex = i;
                         break;
@@ -209,9 +211,9 @@ export const EthWallet = ({ mnemonic }) => {
 
                 if (foundIndex === -1) throw new Error("Could not find private key for this wallet");
 
-                const derivationPath = `m/44'/60'/${foundIndex}'/0'`;
+                const path = `m/44'/60'/0'/0/${foundIndex}`;
                 const hdNode = HDNodeWallet.fromSeed(seed);
-                const child = hdNode.derivePath(derivationPath);
+                const child = hdNode.derivePath(path);
                 wallet = new Wallet(child.privateKey, provider);
             }
 
@@ -223,10 +225,6 @@ export const EthWallet = ({ mnemonic }) => {
             await tx.wait();
             refreshBalances();
 
-            // Close modal via a callback if we had access to setSending from here, 
-            // but since we don't, we rely on the promise resolving for the modal to close itself 
-            // or we can pass a success callback to initiateSend. 
-            // For now, prompt handling is separated.
             return tx.hash;
 
         } catch (error) {
@@ -254,7 +252,7 @@ export const EthWallet = ({ mnemonic }) => {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white tracking-tight">Ethereum</h2>
+                <h2 className="text-lg md:text-2xl font-bold text-white tracking-tight">Ethereum</h2>
                 <div className="flex gap-2">
                     <button onClick={refreshBalances} className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-lg transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
@@ -290,7 +288,7 @@ export const EthWallet = ({ mnemonic }) => {
 
             <div className="grid gap-4">
                 {addresses.map((p, index) => (
-                    <div key={index} className="bg-slate-800 rounded-xl p-6 hover:bg-slate-750 transition-all shadow-lg group relative overflow-hidden">
+                    <div key={index} className="bg-slate-800 rounded-xl p-4 md:p-6 hover:bg-slate-750 transition-all shadow-lg group relative overflow-hidden">
                         {/* Background Decoration */}
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none"></div>
 
@@ -369,17 +367,12 @@ export const EthWallet = ({ mnemonic }) => {
             )}
 
             {deleteConfig && (
-                <ConfirmationModal
+                <DeleteWalletModal
                     isOpen={deleteConfig.isOpen}
                     onClose={() => setDeleteConfig(null)}
                     onConfirm={confirmDelete}
-                    title={deleteConfig.hasFunds ? "Warning: Funds Detected!" : "Hide Wallet?"}
-                    message={deleteConfig.hasFunds
-                        ? "This wallet looks like it has funds (" + addresses.find(w => w.address === deleteConfig.address)?.balance + " ETH). If you hide it without saving the Private Key, you might lose access forever. We recommend viewing and saving the key first."
-                        : "Are you sure you want to hide this wallet? You can likely restore it later."
-                    }
-                    confirmText="Hide Anyway"
-                    type={deleteConfig.hasFunds ? "danger" : "danger"}
+                    walletType={deleteConfig.type}
+                    hasFunds={deleteConfig.hasFunds}
                 />
             )}
 
@@ -394,6 +387,14 @@ export const EthWallet = ({ mnemonic }) => {
                 onClose={() => setShowPrivateKeyModal(null)}
                 privateKey={showPrivateKeyModal?.secretKey || ''}
             />
+
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
         </div>
     )
 }

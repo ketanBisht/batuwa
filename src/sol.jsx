@@ -7,15 +7,18 @@ import bs58 from "bs58";
 import { WalletActionModal } from "./components/WalletActionModal";
 import { ConfirmationModal } from "./components/ConfirmationModal";
 import { PasswordPromptModal } from "./components/PasswordPromptModal";
+import { DeleteWalletModal } from "./components/DeleteWalletModal";
+import { SOL_RPC_URL } from "./config";
 import { PrivateKeyModal } from "./components/PrivateKeyModal";
+import { Notification } from "./components/Notification";
 
 // Simplified connection to devnet
-const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+const connection = new Connection(SOL_RPC_URL, 'confirmed');
 
 export function SolanaWallet({ mnemonic }) {
     const [publicKeys, setPublicKeys] = useState([]);
     const [modalConfig, setModalConfig] = useState(null); // { isOpen, action, address }
-    const [deleteConfig, setDeleteConfig] = useState(null); // { isOpen, address }
+    const [deleteConfig, setDeleteConfig] = useState(null); // { isOpen, address, type, hasFunds }
 
     // Security / Keys
     const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
@@ -36,13 +39,20 @@ export function SolanaWallet({ mnemonic }) {
         }
     }, [publicKeys]);
 
+    const [notification, setNotification] = useState(null); // { message, type }
+
     const addWallet = async () => {
         const seed = await mnemonicToSeedSync(mnemonic);
-        let index = 0;
+
+        // Get the next index from storage or initialize
+        let nextIndex = parseInt(localStorage.getItem('nextSolanaIndex') || '0');
+
+        // Safety check: ensure we don't collide with existing wallets just in case
+        // (Though standard behavior is just to trust the index)
+        let index = nextIndex;
         let pKey = null;
         let balance = 0;
 
-        // Loop to find the first unused derivation path
         while (true) {
             const path = `m/44'/501'/${index}'/0'`;
             const derivedSeed = derivePath(path, seed.toString("hex")).key;
@@ -63,10 +73,14 @@ export function SolanaWallet({ mnemonic }) {
             index++;
         }
 
+        // Save the NEXT index for future use
+        localStorage.setItem('nextSolanaIndex', (index + 1).toString());
+
         setPublicKeys([...publicKeys, {
             toBase58: pKey,
             balance: balance,
-            type: 'hd' // Hierarchical Deterministic
+            type: 'hd',
+            index: index // Store index for easier recovery if needed
         }]);
     };
 
@@ -79,7 +93,7 @@ export function SolanaWallet({ mnemonic }) {
 
             const exists = publicKeys.some(w => w.toBase58 === address);
             if (exists) {
-                alert("Wallet already exists!");
+                setNotification({ message: "Wallet already exists!", type: "error" });
                 return;
             }
 
@@ -93,19 +107,22 @@ export function SolanaWallet({ mnemonic }) {
             setImportKeyInput('');
             setShowImportInput(false);
             refreshBalances();
+            setNotification({ message: "Wallet imported successfully!", type: "success" });
         } catch (e) {
-            alert("Invalid Private Key. Please ensure it is base58 encoded.");
+            setNotification({ message: "Invalid Private Key. Please ensure it is base58 encoded.", type: "error" });
         }
     };
 
     const handleDelete = (address) => {
         const wallet = publicKeys.find(w => w.toBase58 === address);
-        // Safeguard: Check balance
-        if (wallet && wallet.balance > 0) {
-            setDeleteConfig({ isOpen: true, address, hasFunds: true });
-        } else {
-            setDeleteConfig({ isOpen: true, address, hasFunds: false });
-        }
+        if (!wallet) return;
+
+        setDeleteConfig({
+            isOpen: true,
+            address,
+            type: wallet.type,
+            hasFunds: wallet.balance > 0
+        });
     };
 
     const confirmDelete = () => {
@@ -166,12 +183,8 @@ export function SolanaWallet({ mnemonic }) {
 
     const fetchBalance = async (publicKey) => {
         try {
-            const response = await fetch(`http://localhost:3000/api/balance/sol/${publicKey}`);
-            const data = await response.json();
-            if (data.balance !== undefined) {
-                return data.balance;
-            }
-            return 0;
+            const balance = await connection.getBalance(new PublicKey(publicKey));
+            return balance / LAMPORTS_PER_SOL;
         } catch (e) {
             console.error("Failed to fetch SOL balance:", e);
             return 0;
@@ -253,7 +266,7 @@ export function SolanaWallet({ mnemonic }) {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white tracking-tight">Solana</h2>
+                <h2 className="text-lg md:text-2xl font-bold text-white tracking-tight">Solana</h2>
                 <div className="flex gap-2">
                     <button onClick={refreshBalances} className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-lg transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
@@ -289,7 +302,7 @@ export function SolanaWallet({ mnemonic }) {
 
             <div className="grid gap-4">
                 {publicKeys.map((p, index) => (
-                    <div key={index} className="bg-slate-800 rounded-xl p-6 hover:bg-slate-750 transition-all shadow-lg group relative overflow-hidden">
+                    <div key={index} className="bg-slate-800 rounded-xl p-4 md:p-6 hover:bg-slate-750 transition-all shadow-lg group relative overflow-hidden">
                         {/* Background Decoration */}
                         <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none"></div>
 
@@ -368,17 +381,12 @@ export function SolanaWallet({ mnemonic }) {
             )}
 
             {deleteConfig && (
-                <ConfirmationModal
+                <DeleteWalletModal
                     isOpen={deleteConfig.isOpen}
                     onClose={() => setDeleteConfig(null)}
                     onConfirm={confirmDelete}
-                    title={deleteConfig.hasFunds ? "Warning: Funds Detected!" : "Hide Wallet?"}
-                    message={deleteConfig.hasFunds
-                        ? "This wallet looks like it has funds (" + publicKeys.find(w => w.toBase58 === deleteConfig.address)?.balance + " SOL). If you hide it without saving the Private Key, you might lose access forever. We recommend viewing and saving the key first."
-                        : "Are you sure you want to hide this wallet? You can likely restore it later."
-                    }
-                    confirmText="Hide Anyway"
-                    type={deleteConfig.hasFunds ? "danger" : "danger"}
+                    walletType={deleteConfig.type}
+                    hasFunds={deleteConfig.hasFunds}
                 />
             )}
 
@@ -393,6 +401,14 @@ export function SolanaWallet({ mnemonic }) {
                 onClose={() => setShowPrivateKeyModal(null)}
                 privateKey={showPrivateKeyModal?.secretKey || ''}
             />
+
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
         </div>
     )
 }
