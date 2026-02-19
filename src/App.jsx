@@ -4,10 +4,12 @@ import { SolanaWallet } from './sol';
 import { EthWallet } from './eth';
 import { Login } from './components/Login';
 import { Onboarding } from './components/Onboarding';
+import { ConfirmationModal } from './components/ConfirmationModal';
 
 function App() {
   const [mnemonic, setMnemonic] = useState(null);
   const [hasEncryptedWallet, setHasEncryptedWallet] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   useEffect(() => {
     // Check if wallet exists in storage
@@ -22,14 +24,12 @@ function App() {
   };
 
   const handleClearWallet = () => {
-    if (confirm("Are you sure? This will delete your wallet permanently.")) {
-      localStorage.removeItem('encrypted_mnemonic');
-      localStorage.removeItem('wallet_metadata');
-      localStorage.removeItem('solana_wallets');
-      localStorage.removeItem('eth_wallets');
-      setHasEncryptedWallet(false);
-      setMnemonic(null);
-    }
+    localStorage.removeItem('encrypted_mnemonic');
+    localStorage.removeItem('wallet_metadata');
+    localStorage.removeItem('solana_wallets');
+    localStorage.removeItem('eth_wallets');
+    setHasEncryptedWallet(false);
+    setMnemonic(null);
   };
 
   if (!hasEncryptedWallet) {
@@ -47,9 +47,19 @@ function App() {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-20 px-4 font-sans">
         <Login onLogin={(mn) => setMnemonic(mn)} />
-        <button onClick={handleClearWallet} className="mt-8 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors">
+        <button onClick={() => setShowResetModal(true)} className="mt-8 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors">
           Reset Wallet
         </button>
+
+        <ConfirmationModal
+          isOpen={showResetModal}
+          onClose={() => setShowResetModal(false)}
+          onConfirm={handleClearWallet}
+          title="Reset Wallet?"
+          message="Are you sure you want to reset your wallet? This will permanently delete your current wallet and all associated data from this browser. This action cannot be undone."
+          confirmText="Yes, Reset Wallet"
+          type="danger"
+        />
       </div>
     );
   }
