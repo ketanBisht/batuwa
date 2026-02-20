@@ -33,7 +33,7 @@ export const Onboarding = ({ onComplete }) => {
                 {step === 'password' ? 'Create Password' : 'Secure Your Wallet'}
             </h2>
 
-            <div className="w-full max-w-lg bg-slate-800/50 backdrop-blur-xl rounded-2xl p-8 shadow-2xl">
+            <div className="w-full max-w-lg bg-slate-800/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 shadow-2xl">
                 {step === 'password' ? (
                     <div className="space-y-4">
                         <div>
@@ -72,25 +72,25 @@ export const Onboarding = ({ onComplete }) => {
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-3 md:grid-cols-4 gap-3 bg-slate-900/50 p-4 rounded-xl">
+                        <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3 bg-slate-900/50 p-3 md:p-4 rounded-xl">
                             {mnemonic.split(" ").map((word, index) => (
                                 <div key={index} className="text-center">
-                                    <span className="text-slate-500 text-xs mr-2">{index + 1}.</span>
-                                    <span className="text-slate-200 font-medium">{word}</span>
+                                    <span className="text-slate-500 text-[10px] md:text-xs mr-1 md:mr-2">{index + 1}.</span>
+                                    <span className="text-slate-200 font-medium text-xs md:text-sm">{word}</span>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="flex gap-4">
+                        <div className="flex flex-col md:flex-row gap-3 md:gap-4">
                             <button
                                 onClick={() => navigator.clipboard.writeText(mnemonic)}
-                                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-lg font-medium transition-colors"
+                                className="w-full md:flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-lg font-medium transition-colors"
                             >
                                 Copy Phrase
                             </button>
                             <button
                                 onClick={() => onComplete(mnemonic)}
-                                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white py-3 rounded-lg font-bold shadow-lg transition-all"
+                                className="w-full md:flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white py-3 rounded-lg font-bold shadow-lg transition-all"
                             >
                                 I Saved It
                             </button>
