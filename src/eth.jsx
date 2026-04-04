@@ -77,8 +77,11 @@ export const EthWallet = ({ mnemonic }) => {
 
     const handleImportWallet = async () => {
         try {
-            // Assume input is private key (hex)
-            const wallet = new Wallet(importKeyInput);
+            let input = importKeyInput.trim();
+            if (!input.startsWith('0x')) {
+                input = '0x' + input;
+            }
+            const wallet = new Wallet(input);
             const address = wallet.address;
 
             const exists = addresses.some(w => w.address === address);
@@ -87,18 +90,19 @@ export const EthWallet = ({ mnemonic }) => {
                 return;
             }
 
+            const balance = await fetchBalance(address);
+
             setAddresses([...addresses, {
                 address,
-                balance: 0,
+                balance: balance,
                 type: 'imported',
-                privateKey: importKeyInput // Should be encrypted
+                privateKey: input // Should be encrypted
             }]);
             setImportKeyInput('');
             setShowImportInput(false);
-            refreshBalances();
             setNotification({ message: "Wallet imported successfully!", type: "success" });
         } catch (e) {
-            setNotification({ message: "Invalid Private Key.", type: "error" });
+            setNotification({ message: "Invalid Private Key. Please ensure it is a valid hex string.", type: "error" });
         }
     };
 

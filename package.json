@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:zip": "vite build && cd dist && zip -r ../batuwa-extension.zip *"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

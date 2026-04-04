@@ -84,10 +84,15 @@ export function SolanaWallet({ mnemonic }) {
         }]);
     };
 
-    const handleImportWallet = () => {
+    const handleImportWallet = async () => {
         try {
-            // Assume input is base58 encoded secret key
-            const secret = bs58.decode(importKeyInput);
+            const input = importKeyInput.trim();
+            let secret;
+            if (input.startsWith('[')) {
+                secret = Uint8Array.from(JSON.parse(input));
+            } else {
+                secret = bs58.decode(input);
+            }
             const keypair = Keypair.fromSecretKey(secret);
             const address = keypair.publicKey.toBase58();
 
@@ -97,19 +102,20 @@ export function SolanaWallet({ mnemonic }) {
                 return;
             }
 
+            const balance = await fetchBalance(address);
+
             setPublicKeys([...publicKeys, {
                 toBase58: address,
-                balance: 0,
+                balance: balance,
                 type: 'imported',
                 secret: bs58.encode(secret) // Storing plain text secret for imported wallets (simple implementation as requested)
                 // Ideally this should be encrypted with the user's password too.
             }]);
             setImportKeyInput('');
             setShowImportInput(false);
-            refreshBalances();
             setNotification({ message: "Wallet imported successfully!", type: "success" });
         } catch (e) {
-            setNotification({ message: "Invalid Private Key. Please ensure it is base58 encoded.", type: "error" });
+            setNotification({ message: "Invalid Private Key. Please ensure it is base58 encoded or a valid byte array.", type: "error" });
         }
     };
 
