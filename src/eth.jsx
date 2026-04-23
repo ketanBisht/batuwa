@@ -6,6 +6,7 @@ import { DeleteWalletModal } from "./components/DeleteWalletModal";
 import { PasswordPromptModal } from "./components/PasswordPromptModal";
 import { PrivateKeyModal } from "./components/PrivateKeyModal";
 import { Notification } from "./components/Notification";
+import { encryptData, decryptData } from "./utils/crypto";
 import { ETH_RPC_URL } from "./config";
 
 // Simplified connection to Sepolia
@@ -81,26 +82,11 @@ export const EthWallet = ({ mnemonic }) => {
             if (!input.startsWith('0x')) {
                 input = '0x' + input;
             }
-            const wallet = new Wallet(input);
-            const address = wallet.address;
-
-            const exists = addresses.some(w => w.address === address);
-            if (exists) {
-                setNotification({ message: "Wallet already exists!", type: "error" });
-                return;
-            }
-
-            const balance = await fetchBalance(address);
-
-            setAddresses([...addresses, {
-                address,
-                balance: balance,
-                type: 'imported',
-                privateKey: input // Should be encrypted
-            }]);
-            setImportKeyInput('');
-            setShowImportInput(false);
-            setNotification({ message: "Wallet imported successfully!", type: "success" });
+            // Validate key before asking for password
+            new Wallet(input);
+            
+            setPasswordAction('import');
+            setShowPasswordPrompt(true);
         } catch (e) {
             setNotification({ message: "Invalid Private Key. Please ensure it is a valid hex string.", type: "error" });
         }
@@ -131,39 +117,58 @@ export const EthWallet = ({ mnemonic }) => {
         setShowPasswordPrompt(true);
     };
 
-    const handlePasswordSuccess = async (decryptedMnemonic) => {
+    const handlePasswordSuccess = async (decryptedMnemonic, password) => {
         setShowPasswordPrompt(false);
-        if (passwordAction === 'view_key' && targetWallet) {
+        if (passwordAction === 'import') {
+            try {
+                let input = importKeyInput.trim();
+                if (!input.startsWith('0x')) {
+                    input = '0x' + input;
+                }
+                const wallet = new Wallet(input);
+                const address = wallet.address;
+
+                const exists = addresses.some(w => w.address === address);
+                if (exists) {
+                    setNotification({ message: "Wallet already exists!", type: "error" });
+                    return;
+                }
+
+                const balance = await fetchBalance(address);
+                const encryptedKey = encryptData(input, password);
+
+                setAddresses([...addresses, {
+                    address,
+                    balance: balance,
+                    type: 'imported',
+                    privateKey: encryptedKey
+                }]);
+                setImportKeyInput('');
+                setShowImportInput(false);
+                setNotification({ message: "Wallet imported successfully!", type: "success" });
+            } catch (e) {
+                setNotification({ message: "Import failed during encryption.", type: "error" });
+            }
+        } else if (passwordAction === 'view_key' && targetWallet) {
             let secretKeyString = '';
 
             if (targetWallet.type === 'imported') {
-                secretKeyString = targetWallet.privateKey; // Fixed: Use privateKey for imported ETH wallets
+                secretKeyString = decryptData(targetWallet.privateKey, password);
             } else {
                 // Re-derive
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
 
-                let found = false;
-                for (let i = 0; i < 100; i++) {
-                    const path = `m/44'/60'/0'/0/${i}`;
-                    const hdNode = HDNodeWallet.fromSeed(seed);
-                    const child = hdNode.derivePath(path);
-                    if (child.address === targetWallet.address) {
-                        secretKeyString = child.privateKey;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    alert("Could not derive key. Mismatch?");
-                    return;
-                }
+                const path = `m/44'/60'/0'/0/${targetWallet.index}`;
+                const hdNode = HDNodeWallet.fromSeed(seed);
+                const child = hdNode.derivePath(path);
+                secretKeyString = child.privateKey;
             }
 
             setShowPrivateKeyModal({ secretKey: secretKeyString });
             setTargetWallet(null);
         } else if (passwordAction === 'send' && pendingTx) {
             try {
-                const hash = await executeSend(decryptedMnemonic);
+                const hash = await executeSend(decryptedMnemonic, password);
                 if (pendingTx.resolve) pendingTx.resolve(hash);
             } catch (error) {
                 if (pendingTx.reject) pendingTx.reject(error);
@@ -189,7 +194,7 @@ export const EthWallet = ({ mnemonic }) => {
         setAddresses(updatedWallets);
     };
 
-    const executeSend = async (decryptedMnemonic) => {
+    const executeSend = async (decryptedMnemonic, password) => {
         if (!pendingTx || !targetWallet) return;
 
         const { toAddress, amount } = pendingTx;
@@ -198,23 +203,11 @@ export const EthWallet = ({ mnemonic }) => {
         try {
             let wallet;
             if (targetWallet.type === 'imported') {
-                wallet = new Wallet(targetWallet.privateKey, provider);
+                const decryptedKey = decryptData(targetWallet.privateKey, password);
+                wallet = new Wallet(decryptedKey, provider);
             } else {
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
-                let foundIndex = -1;
-                // We need to find the correct index for the sender address
-                for (let i = 0; i < 100; i++) {
-                    const path = `m/44'/60'/0'/0/${i}`;
-                    const hdNode = HDNodeWallet.fromSeed(seed);
-                    const child = hdNode.derivePath(path);
-                    if (child.address === fromAddress) {
-                        foundIndex = i;
-                        break;
-                    }
-                }
-
-                if (foundIndex === -1) throw new Error("Could not find private key for this wallet");
-
+                let foundIndex = targetWallet.index;
                 const path = `m/44'/60'/0'/0/${foundIndex}`;
                 const hdNode = HDNodeWallet.fromSeed(seed);
                 const child = hdNode.derivePath(path);

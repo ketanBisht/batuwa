@@ -11,6 +11,7 @@ import { DeleteWalletModal } from "./components/DeleteWalletModal";
 import { SOL_RPC_URL } from "./config";
 import { PrivateKeyModal } from "./components/PrivateKeyModal";
 import { Notification } from "./components/Notification";
+import { encryptData, decryptData } from "./utils/crypto";
 
 // Simplified connection to devnet
 const connection = new Connection(SOL_RPC_URL, 'confirmed');
@@ -93,27 +94,11 @@ export function SolanaWallet({ mnemonic }) {
             } else {
                 secret = bs58.decode(input);
             }
-            const keypair = Keypair.fromSecretKey(secret);
-            const address = keypair.publicKey.toBase58();
-
-            const exists = publicKeys.some(w => w.toBase58 === address);
-            if (exists) {
-                setNotification({ message: "Wallet already exists!", type: "error" });
-                return;
-            }
-
-            const balance = await fetchBalance(address);
-
-            setPublicKeys([...publicKeys, {
-                toBase58: address,
-                balance: balance,
-                type: 'imported',
-                secret: bs58.encode(secret) // Storing plain text secret for imported wallets (simple implementation as requested)
-                // Ideally this should be encrypted with the user's password too.
-            }]);
-            setImportKeyInput('');
-            setShowImportInput(false);
-            setNotification({ message: "Wallet imported successfully!", type: "success" });
+            // Just validate the key before asking for password
+            Keypair.fromSecretKey(secret);
+            
+            setPasswordAction('import');
+            setShowPasswordPrompt(true);
         } catch (e) {
             setNotification({ message: "Invalid Private Key. Please ensure it is base58 encoded or a valid byte array.", type: "error" });
         }
@@ -144,42 +129,62 @@ export function SolanaWallet({ mnemonic }) {
         setShowPasswordPrompt(true);
     };
 
-    const handlePasswordSuccess = async (decryptedMnemonic) => {
+    const handlePasswordSuccess = async (decryptedMnemonic, password) => {
         setShowPasswordPrompt(false);
-        if (passwordAction === 'view_key' && targetWallet) {
+        if (passwordAction === 'import') {
+            try {
+                const input = importKeyInput.trim();
+                let secret;
+                if (input.startsWith('[')) {
+                    secret = Uint8Array.from(JSON.parse(input));
+                } else {
+                    secret = bs58.decode(input);
+                }
+                const keypair = Keypair.fromSecretKey(secret);
+                const address = keypair.publicKey.toBase58();
+
+                const exists = publicKeys.some(w => w.toBase58 === address);
+                if (exists) {
+                    setNotification({ message: "Wallet already exists!", type: "error" });
+                    return;
+                }
+
+                const balance = await fetchBalance(address);
+                const encryptedSecret = encryptData(bs58.encode(secret), password);
+
+                setPublicKeys([...publicKeys, {
+                    toBase58: address,
+                    balance: balance,
+                    type: 'imported',
+                    secret: encryptedSecret
+                }]);
+                setImportKeyInput('');
+                setShowImportInput(false);
+                setNotification({ message: "Wallet imported successfully!", type: "success" });
+            } catch (e) {
+                setNotification({ message: "Import failed during encryption.", type: "error" });
+            }
+        } else if (passwordAction === 'view_key' && targetWallet) {
             let secretKeyString = '';
 
             if (targetWallet.type === 'imported') {
-                secretKeyString = targetWallet.secret;
+                secretKeyString = decryptData(targetWallet.secret, password);
             } else {
                 // Re-derive
-                // We need to find the index again or just brute force matching
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
                 const address = targetWallet.toBase58;
 
-                let found = false;
-                for (let i = 0; i < 100; i++) {
-                    const path = `m/44'/501'/${i}'/0'`;
-                    const derivedSeed = derivePath(path, seed.toString("hex")).key;
-                    const secret = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
-                    const keypair = Keypair.fromSecretKey(secret);
-                    if (keypair.publicKey.toBase58() === address) {
-                        secretKeyString = bs58.encode(secret);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    alert("Could not derive key. Mismatch?");
-                    return;
-                }
+                const path = `m/44'/501'/${targetWallet.index}'/0'`;
+                const derivedSeed = derivePath(path, seed.toString("hex")).key;
+                const secret = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
+                secretKeyString = bs58.encode(secret);
             }
 
             setShowPrivateKeyModal({ secretKey: secretKeyString });
             setTargetWallet(null);
         } else if (passwordAction === 'send' && pendingTx) {
             try {
-                const signature = await executeSend(decryptedMnemonic);
+                const signature = await executeSend(decryptedMnemonic, password);
                 if (pendingTx.resolve) pendingTx.resolve(signature);
             } catch (error) {
                 if (pendingTx.reject) pendingTx.reject(error);
@@ -205,7 +210,7 @@ export function SolanaWallet({ mnemonic }) {
         setPublicKeys(updatedWallets);
     };
 
-    const executeSend = async (decryptedMnemonic) => {
+    const executeSend = async (decryptedMnemonic, password) => {
         if (!pendingTx || !targetWallet) return;
 
         const { toAddress, amount } = pendingTx;
@@ -214,21 +219,14 @@ export function SolanaWallet({ mnemonic }) {
         try {
             let secret;
             if (targetWallet.type === 'imported') {
-                secret = bs58.decode(targetWallet.secret);
+                const decryptedSecret = decryptData(targetWallet.secret, password);
+                secret = bs58.decode(decryptedSecret);
             } else {
                 const seed = await mnemonicToSeedSync(decryptedMnemonic);
-                let foundIndex = -1;
-                for (let i = 0; i < 100; i++) {
-                    const path = `m/44'/501'/${i}'/0'`;
-                    const derivedSeed = derivePath(path, seed.toString("hex")).key;
-                    const s = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
-                    const keypair = Keypair.fromSecretKey(s);
-                    if (keypair.publicKey.toBase58() === fromAddress) {
-                        foundIndex = i;
-                        secret = s;
-                        break;
-                    }
-                }
+                const path = `m/44'/501'/${targetWallet.index}'/0'`;
+                const derivedSeed = derivePath(path, seed.toString("hex")).key;
+                secret = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
+                let foundIndex = targetWallet.index;
                 if (foundIndex === -1) throw new Error("Could not find private key for this wallet");
             }
 

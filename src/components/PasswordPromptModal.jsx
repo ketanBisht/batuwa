@@ -17,7 +17,7 @@ export const PasswordPromptModal = ({ isOpen, onClose, onSuccess, title = "Secur
 
         const decrypted = decryptData(encryptedMnemonic, password);
         if (decrypted) {
-            onSuccess(decrypted); // Pass mnemonic back to caller
+            onSuccess(decrypted, password); // Pass mnemonic and password back to caller
             setPassword('');
             setError('');
         } else {
